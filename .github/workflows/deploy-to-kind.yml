@@ -1,0 +1,61 @@
+name: deploy-to-kind
+
+run-name: Deploy to ${{ inputs.environment }}
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: string
+      kind-config:
+        description: 'Path to Kind cluster config file'
+        required: false
+        type: string
+        default: './cluster.yml'
+      helm-package:
+        description: 'Helm package glob pattern'
+        required: false
+        type: string
+        default: '*.tgz'
+      release-name:
+        description: 'Helm release name'
+        required: false
+        type: string
+        default: 'todoapp'
+
+jobs:
+  deploy-kind:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Download Helm package
+        uses: actions/download-artifact@v4
+        with:
+          name: helm-package
+          path: .
+
+      - name: Install Kind CLI
+        run: |
+          curl -Lo kind https://kind.sigs.k8s.io/dl/v0.20.0/kind-linux-amd64
+          chmod +x kind
+          sudo mv kind /usr/local/bin/
+
+      - name: Create Kind cluster
+        run: kind create cluster --config ${{ inputs.kind-config }}
+
+      - name: Set up Kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Set up Helm CLI
+        uses: azure/setup-helm@v4.2.0
+
+      - name: Helm install (dry-run)
+        run: helm install ${{ inputs.release-name }} ${{ inputs.helm-package }} --dry-run
+
+      - name: Helm upgrade/install (atomic)
+        run: helm upgrade --install ${{ inputs.release-name }} ${{ inputs.helm-package }} --atomic --wait --timeout 300s
